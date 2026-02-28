@@ -234,7 +234,20 @@ struct LuaState
             luaL_openlibs(this.handle);
         }
 
-        this._G = LuaTablePseudo(&this, LUA_GLOBALSINDEX);
+        version(LUA_51)
+        {
+            // old global index constant only exists in 5.1
+            this._G = LuaTablePseudo(&this, LUA_GLOBALSINDEX);
+        }
+        else
+        {
+            // later Lua versions provide a function to push the global table
+            lua_pushglobaltable(this.handle);
+            // create a temporary pseudo table for the caller; globalTable() will
+            // regenerate on demand, so we don't keep this on the stack.
+            this._G = LuaTablePseudo(&this, -1);
+            this.pop(1);
+        }
     }
 
     /// For non-wrappers, destroy the lua state.
@@ -248,7 +261,18 @@ struct LuaState
     @nogc
     LuaTablePseudo globalTable() nothrow
     {
-        return this._G;
+        version(LUA_51)
+        {
+            return this._G;
+        }
+        else
+        {
+            // push/pop a fresh global table each call; avoids keeping it on the stack
+            lua_pushglobaltable(this.handle);
+            auto tbl = LuaTablePseudo(&this, -1);
+            this.pop(1);
+            return tbl;
+        }
     }
 
     @nogc
@@ -424,7 +448,18 @@ struct LuaState
         static foreach(i; 0..Args.length/2)
             reg[i] = luaL_Reg(Args[i*2].ptr, &luaCWrapperSmart!(Args[i*2+1]));
 
-        luaL_register(this.handle, libname.toStringz, reg.ptr);
+        version(LUA_51)
+        {
+            luaL_register(this.handle, libname.toStringz, reg.ptr);
+        }
+        else
+        {
+            // Lua 5.2+ removed luaL_register; use newlib helper which
+            // creates the table and registers the functions in one go.
+            // reg is a static array; luaL_newlib wants a slice
+            luaL_newlib(this.handle, reg[]);
+            lua_setglobal(this.handle, libname.toStringz);
+        }
     }
 
     @nogc
@@ -577,9 +612,16 @@ struct LuaState
         }
 
         table.push();
-        const fenvResult = lua_setfenv(this.handle, -2);
-        if(fenvResult == 0)
-            throw new LuaException("Failed to set function environment");
+        version(LUA_51)
+        {
+            const fenvResult = lua_setfenv(this.handle, -2);
+            if(fenvResult == 0)
+                throw new LuaException("Failed to set function environment");
+        }
+        else
+        {
+            lua_setupvalue(this.handle, -2, 1);
+        }
 
         const callStatus = lua_pcall(this.handle, 0, 0, 0);
         if(callStatus != LuaStatus.ok)
@@ -612,9 +654,16 @@ struct LuaState
         }
 
         table.push();
-        const fenvResult = lua_setfenv(this.handle, -2);
-        if(fenvResult == 0)
-            throw new LuaException("Failed to set function environment");
+        version(LUA_51)
+        {
+            const fenvResult = lua_setfenv(this.handle, -2);
+            if(fenvResult == 0)
+                throw new LuaException("Failed to set function environment");
+        }
+        else
+        {
+            lua_setupvalue(this.handle, -2, 1);
+        }
 
         const callStatus = lua_pcall(this.handle, 0, 0, 0);
         if(callStatus != LuaStatus.ok)

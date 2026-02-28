@@ -1,6 +1,6 @@
 # Overview
 
-Lumars is a high-level wrapper around LUA 5.1 that aims to be lightweight while providing high quality of life features.
+Lumars is a high-level wrapper around Lua that aims to be lightweight while providing high quality of life features. It supports Lua 5.1 (mainly for LuaJit) and Lua 5.5.
 
 This library has been in use for a while, and is _relatively_ stable. If you can be bothered, please open an issue alongside a minimised, idependent snippet of code
 that I can add as a unittest, which will also make it easier for me to debug.
@@ -9,6 +9,9 @@ Also if you're using this library for a project, consider adding it (or asking m
 
 - [Overview](#overview)
 - [Features](#features)
+- [Building](#building)
+  - [Lua Version Selection](#lua-version-selection)
+  - [Using Lua 5.5](#using-lua-55)
 - [Quick Start](#quick-start)
   - [Hello World](#hello-world)
   - [Tables](#tables)
@@ -49,10 +52,73 @@ Also if you're using this library for a project, consider adding it (or asking m
   - Some types use ref counting in order to be easy to move around while still keeping lifetime guarentees
 - Doesn't shy away from the GC, but does try to minimise usage of it
   - For example, if you don't mind managing the lifetime of a Lua stack variable, you can use `const(char)[]` instead of `string` to avoid copying strings onto the GC.
-- Supports Lua 5.1 (mainly for LuaJit)
+- Supports Lua 5.1 (mainly for LuaJit) and Lua 5.5 (including API compatibility fallback for 5.2+ like `_ENV`)
 - Bind Lua functions to statically typed D functions
 - Lambdas, functions, and delegates can all be exposed to Lua
 - Utilities to generated EmmyLua-notated lua files for IDE autocomplete
+
+# Building
+
+Lumars supports multiple Lua versions. By default, it uses Lua 5.1 (best for LuaJit compatibility) and Lua 5.5.
+
+For detailed build instructions, platforms, and troubleshooting, see [BUILDING.md](BUILDING.md).
+
+## Lua Version Selection
+
+When building your project, you can specify which Lua version to use:
+
+```bash
+# Build with Lua 5.1 (static linking)
+dub build --config=lua51
+
+# Build with Lua 5.1 (dynamic linking)
+dub build --config=lua51-dynamic
+
+# Build with Lua 5.5 (static linking)
+dub build --config=lua55
+
+# Build with Lua 5.5 (dynamic linking)
+dub build --config=lua55-dynamic
+```
+
+## Using Lua 5.5
+
+To use Lua 5.5, you first need to ensure the Lua 5.5 binaries are available in the `deps/` directory.
+
+### Option 1: Automatic Build
+
+Run the provided build script:
+
+**On Linux/macOS:**
+```bash
+chmod +x build_lua55.sh
+./build_lua55.sh
+```
+
+**On Windows:**
+```cmd
+build_lua55.bat
+```
+
+### Option 2: Manual Build
+
+1. Download Lua 5.5 from [lua.org](https://www.lua.org)
+2. Build for your platform using the standard Lua Makefile
+3. Place the resulting static libraries in the appropriate `deps/` subdirectory:
+   - `deps/linux64/lua55.a` (Linux x86_64)
+   - `deps/win64/lua55.lib` (Windows x86_64)
+   - `deps/macx64/lua55.a` (macOS x86_64)
+   - `deps/macamd/lua55.a` (macOS ARM64)
+
+For dynamic linking, place the shared libraries:
+   - `deps/linux64/liblua.5.5.so` (Linux)
+   - `deps/win64/lua55.dll` (Windows)
+   - `deps/macx64/liblua.5.5.dylib` (macOS x86_64)
+   - `deps/macamd/liblua.5.5.dylib` (macOS ARM64)
+
+Then build with `dub build --config=lua55`
+
+For more details, see [BUILDING.md](BUILDING.md).
 
 # Quick Start
 

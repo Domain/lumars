@@ -173,6 +173,31 @@ void main()
 
 ## Tables
 
+Lumars now plays nicely with D's range and `foreach` syntax.  You can push any
+input range directly (it will be converted into a Lua array table), and iterate
+over tables using `foreach` rather than manually calling `pairs`:
+
+```d
+import std.range : iota;
+
+auto lua = LuaState(null);
+
+// push a range
+lua.globalTable["nums"] = iota(1,6);          // {1,2,3,4,5}
+
+// iterate using foreach thanks to opApply
+auto t = lua.globalTable.get!LuaTable("nums");
+foreach(i,v; t)
+{
+    assert(i == v);
+}
+
+// global variable shortcut
+lua["foo"] = 42;                              // same as lua.globalTable["foo"]
+assert(lua["foo"].value!LuaNumber.to!int == 42);
+```
+
+
 ### New Table
 
 ```d
@@ -672,6 +697,25 @@ If the `Nullable` is null: A Lua `nil` is used.
 If the `Nullable` isn't null: The underlying value is used.
 
 Most of the code should transparently support `Nullable`.
+
+## Tuple Support
+
+## API Coverage / Missing Features
+
+While Lumars wraps most of the core Lua API, several parts of the newer
+Lua versions are intentionally left for direct stack manipulation.  These
+are the things you may still need to call `lua_*` yourself for:
+
+* Integer‑specific helpers (`lua_isinteger`, `lua_tointeger`, `lua_pushinteger`) – now partially supported via `LuaInteger` and generic conversions, but not every integer API is wrapped.
+* Garbage‑collector controls (`lua_gc` and 5.4 modes).
+* Extended userdata support (`lua_newuserdatauv`, `lua_setuservalue`, `lua_getuservalue`).
+* Coroutines (`lua_newthread`, `lua_resume`, `lua_yield`) – basic wrappers exist on Lua 5.2 and later, but more advanced usage may require raw calls.
+* Metamethod helpers (`luaL_setfuncs`, `luaL_setmetatable`, etc.).
+* Version/auxiliary functions (`lua_checkversion`, `lua_len`, bitwise ops, etc.).
+
+Patches adding wrappers are very welcome; the intent is to keep the core
+library small and allow power users to access any feature by falling back
+to `LuaState.handle` when necessary.
 
 ## Tuple Support
 

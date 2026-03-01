@@ -1,16 +1,25 @@
 #!/bin/bash
 
-# Build Lua 5.5 binaries for multiple platforms
-# This script downloads the Lua 5.5 source and builds it for different architectures
+# Build Lua binaries for multiple platforms
+# This script downloads the Lua source and builds it for different architectures
+# Usage: ./build_lua.sh [version]
+#   version: Lua version (e.g., 5.1, 5.2, 5.3, 5.4, 5.5). Default: 5.5.0
 
 set -e
 
-LUA_VERSION="5.5.0"
+# Parse arguments
+LUA_VERSION="${1:-5.5.0}"
+
+# Extract major and minor version for library naming (e.g., 5.5.0 -> 55)
+LUA_MAJOR=$(echo "$LUA_VERSION" | cut -d. -f1)
+LUA_MINOR=$(echo "$LUA_VERSION" | cut -d. -f2)
+LUA_LIB_NAME="lua${LUA_MAJOR}${LUA_MINOR}"
+
 LUA_URL="https://www.lua.org/ftp/lua-${LUA_VERSION}.tar.gz"
 WORK_DIR=$(mktemp -d)
 DEPS_DIR="$(dirname "$0")/deps"
 
-echo "Building Lua 5.5 from source..."
+echo "Building Lua ${LUA_VERSION} (lib name: ${LUA_LIB_NAME}) from source..."
 echo "Working directory: $WORK_DIR"
 echo "Dependencies directory: $DEPS_DIR"
 
@@ -52,19 +61,19 @@ build_platform() {
 
 # Build for Linux x86_64
 if command -v gcc &> /dev/null; then
-    build_platform "linux" "gcc" "-O2 -fPIC" "$DEPS_DIR/linux64" "lua55"
+    build_platform "linux" "gcc" "-O2 -fPIC" "$DEPS_DIR/linux64" "${LUA_LIB_NAME}"
 fi
 
 # Build for macOS x86_64
 if command -v clang &> /dev/null && [[ "$OSTYPE" == "darwin"* ]]; then
-    build_platform "macosx" "clang" "-O2 -fPIC" "$DEPS_DIR/macx64" "lua55"
+    build_platform "macosx" "clang" "-O2 -fPIC" "$DEPS_DIR/macx64" "${LUA_LIB_NAME}"
 fi
 
 # Build for macOS ARM64 (Apple Silicon)
 if command -v clang &> /dev/null && [[ "$OSTYPE" == "darwin"* ]]; then
     CFLAGS="-O2 -fPIC -arch arm64" make macosx CC="clang" -j$(nproc)
-    cp src/liblua.a "$DEPS_DIR/macamd/lua55.a"
-    echo "✓ Built for macOS ARM64: $DEPS_DIR/macamd/lua55.a"
+    cp src/liblua.a "$DEPS_DIR/macamd/${LUA_LIB_NAME}.a"
+    echo "✓ Built for macOS ARM64: $DEPS_DIR/macamd/${LUA_LIB_NAME}.a"
     make clean || true
 fi
 
@@ -73,8 +82,8 @@ if command -v x86_64-w64-mingw32-gcc &> /dev/null; then
     echo "Building for Windows x86_64..."
     make clean || true
     make mingw CC="x86_64-w64-mingw32-gcc" AR="x86_64-w64-mingw32-ar rcu" RANLIB="x86_64-w64-mingw32-ranlib" -j$(nproc)
-    cp src/liblua.a "$DEPS_DIR/win64/lua55.lib"
-    echo "✓ Built for Windows: $DEPS_DIR/win64/lua55.lib"
+    cp src/liblua.a "$DEPS_DIR/win64/${LUA_LIB_NAME}.lib"
+    echo "✓ Built for Windows: $DEPS_DIR/win64/${LUA_LIB_NAME}.lib"
     make clean || true
 fi
 
@@ -84,10 +93,10 @@ rm -rf "$WORK_DIR"
 
 echo ""
 echo "========================================="
-echo "Lua 5.5 build complete!"
+echo "Lua ${LUA_VERSION} build complete!"
 echo "========================================="
 echo "Binaries have been placed in $DEPS_DIR"
 echo ""
-echo "To use Lua 5.5, add to your project configuration:"
-echo "  dub build --config=lua55"
+echo "To use Lua ${LUA_VERSION}, add to your project configuration:"
+echo "  dub build --config=lua${LUA_MAJOR}${LUA_MINOR}"
 echo ""

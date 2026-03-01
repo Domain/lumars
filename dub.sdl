@@ -21,20 +21,21 @@ configuration "lua51-dynamic" {
 	copyFiles "$PACKAGE_DIR/deps/macx64/liblua.5.1.dylib" platform="osx-x86_64"
 	versions "LUA_51"
 }
-configuration "lua55" {
+configuration "lua54" {
 	targetType "library"
-	dflags "-L$PACKAGE_DIR/deps/linux64/lua55.a" platform="linux-x86_64"
-	dflags "-L$PACKAGE_DIR/deps/win64/lua55.lib" platform="windows-x86_64"
-	dflags "-L$PACKAGE_DIR/deps/macamd/lua55.a" platform="osx-aarch64"
-	dflags "-L$PACKAGE_DIR/deps/macx64/lua55.a" platform="osx-x86_64"
-	versions "BindLua_Static" "LUA_55" "LUA_54"
+	dflags "-L$PACKAGE_DIR/deps/linux64/lua54.a" platform="linux-x86_64"
+	dflags "-L$PACKAGE_DIR/deps/win64/lua54.lib" platform="windows-x86_64"
+	lflags "legacy_stdio_definitions.lib" "libcmt.lib" platform="windows-x86_64"
+	dflags "-L$PACKAGE_DIR/deps/macamd/lua54.a" platform="osx-aarch64"
+	dflags "-L$PACKAGE_DIR/deps/macx64/lua54.a" platform="osx-x86_64"
+	versions "BindLua_Static" "LUA_54"
     subConfiguration "bindbc-lua" "static"
 }
 
-configuration "lua55-dynamic" {
+configuration "lua54-dynamic" {
 	targetType "library"
-	copyFiles "$PACKAGE_DIR/deps/win64/lua55.dll" platform="windows-x86_64"
-	copyFiles "$PACKAGE_DIR/deps/macamd/liblua.5.5.dylib" platform="osx-aarch64"
-	copyFiles "$PACKAGE_DIR/deps/macx64/liblua.5.5.dylib" platform="osx-x86_64"
-	versions "LUA_55" "LUA_54"
+	copyFiles "$PACKAGE_DIR/deps/win64/lua54.dll" platform="windows-x86_64"
+	copyFiles "$PACKAGE_DIR/deps/macamd/liblua.5.4.dylib" platform="osx-aarch64"
+	copyFiles "$PACKAGE_DIR/deps/macx64/liblua.5.4.dylib" platform="osx-x86_64"
+	versions "LUA_54"
 }

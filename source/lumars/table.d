@@ -148,7 +148,11 @@ private mixin template LuaTableFuncs(bool isPseudo)
             const tableIndex = meIndex < 0 ? meIndex - 1 : meIndex;
         }
         else
-            const tableIndex = this._index;
+        {
+            const meIndex = this.push();
+            scope(exit) this.pop();
+            const tableIndex = meIndex < 0 ? meIndex - 1 : meIndex;
+        }
         
         this.lua.push(index);
         lua_gettable(this.lua.handle, tableIndex);
@@ -184,7 +188,11 @@ private mixin template LuaTableFuncs(bool isPseudo)
             const tableIndex = meIndex < 0 ? meIndex - 1 : meIndex;
         }
         else
-            const tableIndex = this._index;
+        {
+            const meIndex = this.push();
+            scope(exit) this.pop();
+            const tableIndex = meIndex < 0 ? meIndex - 1 : meIndex;
+        }
         
         this.lua.push(index);
         lua_gettable(this.lua.handle, tableIndex);
@@ -203,7 +211,11 @@ private mixin template LuaTableFuncs(bool isPseudo)
             const tableIndex = meIndex < 0 ? meIndex - 2 : meIndex;
         }
         else
-            const tableIndex = this._index;
+        {
+            const meIndex = this.push();
+            scope(exit) this.pop();
+            const tableIndex = meIndex < 0 ? meIndex - 2 : meIndex;
+        }
         
         this.lua.push(index);
         this.lua.push(value);
@@ -219,7 +231,11 @@ private mixin template LuaTableFuncs(bool isPseudo)
             const tableIndex = meIndex < 0 ? meIndex - 1 : meIndex;
         }
         else
-            const tableIndex = this._index;
+        {
+            const meIndex = this.push();
+            scope(exit) this.pop();
+            const tableIndex = meIndex < 0 ? meIndex - 1 : meIndex;
+        }
 
         metatable.push();
         lua_setmetatable(this.lua.handle, tableIndex);
@@ -228,6 +244,25 @@ private mixin template LuaTableFuncs(bool isPseudo)
     void opIndexAssign(T, IndexT)(T value, IndexT index)
     {
         this.set(index, value);
+    }
+
+    auto opIndex(IndexT)(IndexT index)
+    {
+        return this.get!LuaValue(index);
+    }
+
+    int opApply(alias fun)()
+    {
+        // iterate using pairs and call fun(k, v).  allow break/continue by returning
+        // 1 from fun via a runtime check.
+        int result = 0;
+        this.pairs!((k, v) {
+            result = fun(k, v);
+            if(result != 0) // non-zero means break
+                return result;
+            return 0;
+        });
+        return result;
     }
 
     size_t length()
@@ -259,6 +294,27 @@ struct LuaTablePseudo
     {
         this._index = index;
         this._lua = lua;
+    }
+
+    @trusted nothrow
+    int push() 
+    {
+        version(LUA_51)
+        {
+            lua_pushvalue(this._lua.handle, this._index);
+            return this._lua.top;
+        }
+        else
+        {
+            lua_pushglobaltable(this._lua.handle);
+            return this._lua.top;
+        }
+    }
+
+    @trusted nothrow
+    void pop()
+    {
+        this._lua.pop(1);
     }
 
     void pushElement(IndexT)(IndexT index)

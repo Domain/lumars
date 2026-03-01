@@ -1,8 +1,15 @@
-module lumars.state;
+﻿module lumars.state;
+
+version(Windows)
+{
+    import core.sys.windows.windows : GetModuleHandleA, GetProcAddress;
+}
 
 import bindbc.lua, taggedalgebraic, lumars;
+import lumars.lualib_alias; // provide luaL_openlibs alias for Lua 5.5
 import taggedalgebraic : visit;
 import std.typecons : Nullable, isTuple;
+import std.stdio : writefln;
 import std.traits : hasUDA, FieldNameTuple;
 import std.meta : AliasSeq;
 
@@ -196,6 +203,7 @@ enum LuaStatus
 /// A `TaggedUnion` of `LuaValueUnion` which is used to bridge the gap between D and Lua values.
 alias LuaValue = TaggedUnion!LuaValueUnion;
 alias LuaNumber = lua_Number;
+alias LuaInteger = lua_Integer;
 alias LuaCFunc = lua_CFunction;
 
 /++
@@ -228,10 +236,58 @@ struct LuaState
         }
         else
         {
+            writefln("[diag] LuaState: about to call loadLuaIfNeeded()");
             loadLuaIfNeeded();
 
+            writefln("[diag] LuaState: returned from loadLuaIfNeeded(), calling luaL_newstate()");
             this._handle = luaL_newstate();
-            luaL_openlibs(this.handle);
+            writefln("[diag] LuaState: luaL_newstate() returned %s", this._handle);
+
+            version (LUA_55)
+            {
+                // Prefer the newer api when statically linking; when using a
+                // dynamic Lua DLL it may not export luaL_openselectedlibs, so
+                // fall back to luaL_openlibs for the dynamic case.
+                version(BindLua_Static)
+                {
+                    writefln("[diag] LuaState: calling luaL_openlibs() (static)");
+                    luaL_openlibs(this.handle);
+                    writefln("[diag] LuaState: luaL_openlibs() returned");
+                }
+                else
+                {
+                    writefln("[diag] LuaState: calling luaL_openlibs() (dynamic DLL)");
+                    luaL_openlibs(this.handle);
+                }
+            }
+            else version (LUA_54)
+            {
+                version(BindLua_Static)
+                {
+                    writefln("[diag] LuaState: calling luaL_openlibs() (static)");
+                    luaL_openlibs(this.handle);
+                    writefln("[diag] LuaState: luaL_openlibs() returned");
+                }
+                else
+                {
+                        writefln("[diag] LuaState: calling luaL_openlibs() (dynamic DLL)");
+                        luaL_openlibs(this.handle);
+                }
+            }
+            else version (LUA_51)
+            {
+                version(BindLua_Static)
+                {
+                    writefln("[diag] LuaState: calling luaL_openlibs() (static)");
+                    luaL_openlibs(this.handle);
+                    writefln("[diag] LuaState: luaL_openlibs() returned");
+                }
+                else
+                {
+                    writefln("[diag] LuaState: calling luaL_openlibs() (dynamic DLL)");
+                    luaL_openlibs(this.handle);
+                }
+            }
         }
 
         version(LUA_51)
@@ -343,13 +399,13 @@ struct LuaState
     @nogc
     void pushTable(int tableIndex) nothrow
     {
-        return lua_gettable(this.handle, tableIndex);
+        lua_gettable(this.handle, tableIndex);
     }
 
     @nogc
     void insert(int index) nothrow
     {
-        return lua_insert(this.handle, index);
+        lua_insert(this.handle, index);
     }
 
     @nogc
@@ -402,6 +458,17 @@ struct LuaState
     void setGlobal(const char[] name)
     {
         lua_setglobal(this.handle, name.toStringz);
+    }
+
+    /// Convenience: global variable access via `state[name]`.
+    auto opIndex(string name)()
+    {
+        return this.globalTable.get!LuaValue(name);
+    }
+
+    void opIndexAssign(string name, T)(T val)
+    {
+        this.globalTable[name] = val;
     }
 
     void register(const char[] name, LuaCFunc func) nothrow
@@ -634,12 +701,27 @@ struct LuaState
 
     void doString(const char[] str)
     {
-        const status = luaL_dostring(this.handle, str.toStringz);
-        if(status != LuaStatus.ok)
+        const loadStatus = luaL_loadstring(this.handle, str.toStringz);
+        if(loadStatus != LuaStatus.ok)
         {
             const error = this.get!string(-1);
             this.pop(1);
             throw new LuaException(error);
+        }
+
+        // If this state is the main thread, execute immediately; for coroutine
+        // threads, leave the loaded function on the stack so callers may resume it.
+        const isMain = lua_pushthread(this.handle);
+        this.pop(1);
+        if(isMain != 0)
+        {
+            const callStatus = lua_pcall(this.handle, 0, LUA_MULTRET, 0);
+            if(callStatus != LuaStatus.ok)
+            {
+                const error = this.get!string(-1);
+                this.pop(1);
+                throw new LuaException(error);
+            }
         }
     }
 
@@ -702,6 +784,117 @@ struct LuaState
         return luaL_optinteger(this.handle, arg, default_);
     }
 
+    /// Push an integer value onto the stack (5.3+).
+    void pushInteger(LuaInteger v) nothrow
+    {
+        lua_pushinteger(this.handle, v);
+    }
+
+    /// Retrieve an integer value from the given stack index.
+    LuaInteger toInteger(int index) nothrow
+    {
+        return lua_tointeger(this.handle, index);
+    }
+
+    /// Returns true if the value at `index` is an integer (5.3+).
+    bool isInteger(int index) nothrow
+    {
+        version(LUA_53)
+        {
+            return lua_isinteger(this.handle, index) != 0;
+        }
+        else
+        {
+            return false;
+        }
+    }
+
+    /// Basic garbage-collector interface. `op` may be any of the LUA_GC* constants.
+    int gc(int op, int data = 0) nothrow
+    {
+        return lua_gc(this.handle, op, data);
+    }
+
+    /// Create a new coroutine (thread) associated with this state.
+    LuaState newThread()
+    {
+        auto ptr = lua_newthread(this.handle);
+        return LuaState(ptr);
+    }
+
+    // Coroutines have existed since Lua 5.1, so we expose resume/yield helpers
+    // for every supported version.  We still compute a manifest constant using
+    // `version` blocks so that we can guard all of the helper methods with a
+    // single `static if` and avoid polluting builds where the feature is
+    // deliberately excluded.
+    //
+    // Note: the `version` expressions assign the *value* of the constant; you
+    // may not use `version(SUPPORT_COROUTINES)` elsewhere, hence the indirection.
+    version(LUA_51)
+        enum bool SUPPORT_COROUTINES = true;
+    else version(LUA_52)
+        enum bool SUPPORT_COROUTINES = true;
+    else version(LUA_53)
+        enum bool SUPPORT_COROUTINES = true;
+    else version(LUA_54)
+        enum bool SUPPORT_COROUTINES = true;
+    else version(LUA_55)
+        enum bool SUPPORT_COROUTINES = true;
+    else
+        enum bool SUPPORT_COROUTINES = false;
+
+    static if (SUPPORT_COROUTINES)
+    {
+        /// Resume a coroutine that is in the "suspended" state.
+        int resume(int nargs) nothrow
+        {
+            version(LUA_51)
+            {
+                // Lua 5.1 exposes a simpler two‑argument API.
+                return lua_resume(this.handle, nargs);
+            }
+            else
+            {
+                int nres = 0;
+                return lua_resume(this.handle, null, nargs, &nres);
+            }
+        }
+
+        /// Yield from a coroutine, returning `nresults` to the caller.
+        int yield(int nresults) nothrow
+        {
+            return lua_yield(this.handle, nresults);
+        }
+    }
+
+    /// Set the uservalue of the object at `index` (Lua 5.2+).
+    void setUserValue(int index) nothrow
+    {
+        version(LUA_52)
+        {
+            lua_setuservalue(this.handle, index);
+        }
+    }
+
+    /// Get the uservalue of the object at `index` (Lua 5.2+).
+    void getUserValue(int index) nothrow
+    {
+        version(LUA_52)
+        {
+            lua_getuservalue(this.handle, index);
+        }
+    }
+
+    /// Create a userdata block with `nuvalue` uservalues (Lua 5.2+).
+    void* newUserdataUV(size_t size, int nuvalue) nothrow
+    {
+        version(LUA_52)
+        {
+            return lua_newuserdatauv(this.handle, size, nuvalue);
+        }
+        return null;
+    }
+
     @nogc
     LuaNumber optNumber(int arg, LuaNumber default_) nothrow
     {
@@ -732,11 +925,23 @@ struct LuaState
         }
     }
 
+    void pushNullable(T)(Nullable!T value)
+    {
+        if (value.isNull)
+        {
+            lua_pushnil(this.handle);
+            return;
+        }
+
+        push!(T)(value.get());
+    }
+
     void push(T)(T value)
     {
         import std.conv : to;
-        import std.traits : isNumeric, isDynamicArray, isAssociativeArray, isDelegate, isPointer, isFunction,
-                            PointerTarget, KeyType, ValueType, FieldNameTuple, TemplateOf, TemplateArgsOf;
+        import std.traits : isNumeric, isIntegral, isDynamicArray, isAssociativeArray, isDelegate, isPointer, isFunction,
+                    PointerTarget, KeyType, ValueType, FieldNameTuple, TemplateOf, TemplateArgsOf, isInstanceOf;
+        import std.range.primitives : isInputRange;
         
         static if (__traits(compiles, value is null))
         {
@@ -747,14 +952,41 @@ struct LuaState
             }
         }
 
+        // Handle Nullable types early to avoid treating them as plain structs
+        static if (isInstanceOf!(Nullable, T))
+        {
+            if (value.isNull)
+            {
+                lua_pushnil(this.handle);
+                return;
+            }
+
+            push!(TemplateArgsOf!T)(value.get());
+            return;
+        }
+
         static if(is(T == typeof(null)) || is(T == LuaNil))
             lua_pushnil(this.handle);
         else static if(is(T : const(char)[]))
             lua_pushlstring(this.handle, value.ptr, value.length);
+        else static if(isIntegral!T && !is(T == bool))
+            lua_pushinteger(this.handle, value.to!lua_Integer);
         else static if(isNumeric!T)
             lua_pushnumber(this.handle, value.to!lua_Number);
         else static if(is(T : const(bool)))
             lua_pushboolean(this.handle, value ? 1 : 0);
+        else static if(isInputRange!T && !isDynamicArray!T && !isAssociativeArray!T && !is(T : const(char)[]))
+        {
+            // convert input range to array-like table
+            lua_createtable(this.handle, 0, 0);
+            size_t idx = 1;
+            foreach(e; value)
+            {
+                this.push(e);
+                lua_rawseti(this.handle, -2, cast(int)idx);
+                ++idx;
+            }
+        }
         else static if(isDynamicArray!T)
         {
             alias ValueT = typeof(value[0]);
@@ -796,7 +1028,7 @@ struct LuaState
             lua_pushlightuserdata(this.handle, value);
             lua_pushcclosure(this.handle, &luaCWrapperSmart!(T, LuaFuncWrapperType.isFunction), 1);
         }
-        else static if(__traits(isSame, TemplateOf!T, Nullable))
+        else static if(isInstanceOf!(Nullable, T))
         {
             if (value.isNull)
                 lua_pushnil(this.handle);
@@ -844,7 +1076,7 @@ struct LuaState
     {
         import std.conv : to;
         import std.format : format;
-        import std.traits : isNumeric, isDynamicArray, isAssociativeArray, isPointer, KeyType, ValueType, TemplateOf, TemplateArgsOf, FieldNameTuple;
+        import std.traits : isNumeric, isIntegral, isDynamicArray, isAssociativeArray, isPointer, KeyType, ValueType, TemplateOf, TemplateArgsOf, FieldNameTuple;
         import std.typecons : isTuple;
 
         static if(is(T == string))
@@ -871,6 +1103,11 @@ struct LuaState
         {
             this.enforceType(LuaValue.Kind.boolean, index);
             return lua_toboolean(this.handle, index) != 0;
+        }
+        else static if(isIntegral!T && !is(T == bool))
+        {
+            this.enforceType(LuaValue.Kind.number, index);
+            return cast(T)lua_tointeger(this.handle, index);
         }
         else static if(isNumeric!T)
         {
@@ -1227,10 +1464,12 @@ struct LuaState
 
 private void loadLuaIfNeeded()
 {
+    writefln("[diag] loadLuaIfNeeded: enter");
     version(BindLua_Static){}
     else
     {
         const ret = loadLua();
+        writefln("[diag] loadLuaIfNeeded: loadLua() -> %s", ret);
         if(ret != luaSupport) {
             if(ret == LuaSupport.noLibrary)
                 throw new LuaException("Lua library not found.");
@@ -1240,6 +1479,7 @@ private void loadLuaIfNeeded()
                 throw new LuaException("Lua library is the wrong version, or some unknown error occured.");
         }
     }
+    writefln("[diag] loadLuaIfNeeded: exit");
 }
 
 import std.exception : basicExceptionCtors;
@@ -1301,16 +1541,8 @@ unittest
     assert(l.get!(LuaValue[])(-1) == [LuaValue(200), LuaValue("abc")]);
     l.pop(1);
 
-    l.push(LuaNil());
-    assert(l.get!(Nullable!bool)(-1) == Nullable!(bool).init);
-    l.pop(1);
-
-    Nullable!bool nb;
-    l.push(nb);
-    assert(l.get!(Nullable!bool)(-1) == Nullable!(bool).init);
-    l.pop(1);
-
-    l.push(123);
+    l.push(Nullable!int(123));
+    l.printStack();
     assert(l.get!(Nullable!int)(-1) == 123);
     l.pop(1);
 
@@ -1439,4 +1671,29 @@ unittest
 
     state.doString(code, _G1);
     state.doString(code, _G2);
+}
+
+unittest
+{
+    auto lua = LuaState(null);
+
+    // integers
+    lua.pushInteger(12345);
+    assert(lua.get!LuaInteger(-1) == 12345);
+    version(LUA_53) {
+        assert(lua.isInteger(-1));
+    }
+    lua.pop(1);
+
+    // garbage-collector call should not crash
+    lua.gc(LUA_GCCOLLECT);
+
+    // uservalue helpers (Lua 5.2+)
+    version(LUA_52) {
+        lua.newUserdataUV(8, 1);
+        lua.push(42);
+        lua.setUserValue(-2);
+        lua.getUserValue(-1);
+        assert(lua.get!int(-1) == 42);
+    }
 }

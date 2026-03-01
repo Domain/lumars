@@ -25,7 +25,6 @@ configuration "lua54" {
 	targetType "library"
 	dflags "-L$PACKAGE_DIR/deps/linux64/lua54.a" platform="linux-x86_64"
 	dflags "-L$PACKAGE_DIR/deps/win64/lua54.lib" platform="windows-x86_64"
-	lflags "legacy_stdio_definitions.lib" "libcmt.lib" platform="windows-x86_64"
 	dflags "-L$PACKAGE_DIR/deps/macamd/lua54.a" platform="osx-aarch64"
 	dflags "-L$PACKAGE_DIR/deps/macx64/lua54.a" platform="osx-x86_64"
 	versions "BindLua_Static" "LUA_54"
